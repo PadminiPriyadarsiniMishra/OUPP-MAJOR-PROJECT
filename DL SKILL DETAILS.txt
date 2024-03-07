@@ -1,0 +1,47 @@
+CREATE or replace TABLE SKILL_DETAILS(
+    Student_ID             NUMBER,
+    Skill_Category         VARCHAR(255),
+    Skill_Name             VARCHAR(255),
+    Skill_Achievement      VARCHAR(255)
+    );
+
+
+
+-- Describe the table
+DESC TABLE SKILL_DETAILS;
+
+-- Create an external stage integration for S3
+CREATE or REPLACE STORAGE INTEGRATION sto_int_skill
+    TYPE = EXTERNAL_STAGE
+    STORAGE_PROVIDER = S3
+    ENABLED = TRUE
+    STORAGE_AWS_ROLE_ARN = 'arn:aws:iam::287719993503:role/amitrole1'
+    STORAGE_ALLOWED_LOCATIONS = ('s3://spaproject/skill_details/');
+
+-- Describe the integration object
+DESC INTEGRATION sto_int_skill;
+
+-- Create a file format
+CREATE OR REPLACE FILE FORMAT AMITDB.AMITSCHEMA.csv_format_student
+    TYPE = CSV
+    SKIP_HEADER = 1
+    NULL_IF = ('NULL', 'null')
+    EMPTY_FIELD_AS_NULL = TRUE;
+
+-- Create a stage object
+CREATE OR REPLACE STAGE AMITDB.AMITSCHEMA.ext_csv_stage_student
+    URL = 's3://spaproject/skill_details/'
+    STORAGE_INTEGRATION = sto_int_skill
+    FILE_FORMAT = AMITDB.AMITSCHEMA.csv_format_student;
+
+-- Create a Snowflake pipe for automatic ingestion
+
+COPY INTO SKILL_DETAILS
+FROM @AMITDB.AMITSCHEMA.ext_csv_stage_student
+ON_ERROR = CONTINUE;
+
+-- Show pipes
+SHOW PIPES;
+
+-- Select data from the school details table
+SELECT * FROM SKILL_DETAILS;

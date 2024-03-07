@@ -1,0 +1,117 @@
+-- Create Dimension Table
+CREATE OR REPLACE TABLE DIM_STUDENT_SCHOOL_DETAILS AS
+SELECT
+    SD.Student_ID,
+    SD.Student_Name,
+    SD.Date_Of_Birth,
+    SD.Gender,
+    SD.Grade_Level,
+    SD.Contact_Information,
+    SD.School_ID,
+    SD.School_Name,
+    SC.Skill_Category,
+    SC.Skill_Name,
+    SC.Skill_Achievement,
+    SP.Formative_Assessment,
+    SP.Summative_Assessment,
+    SP.Assessment_Avg_Score,
+    SP.Grade,
+    SP.Attendance_Rate,
+    SP.Attendance_Report
+FROM
+    STUDENT_DETAILS SD
+LEFT JOIN
+    SCHOOL_DETAILS SCD ON SD.School_ID = SCD.School_ID
+LEFT JOIN
+    SKILL_DETAILS SC ON SD.Student_ID = SC.Student_ID
+LEFT JOIN
+    STUDENT_PERFORMANCE SP ON SD.Student_ID = SP.Student_ID;
+
+-- Create Fact Table
+CREATE OR REPLACE TABLE FACT_STUDENT_PERFORMANCE AS
+SELECT
+    Student_ID,
+    Formative_Assessment,
+    Summative_Assessment,
+    Assessment_Avg_Score,
+    Grade,
+    Attendance_Rate,
+    Attendance_Report,
+    TO_TIMESTAMP_NTZ(CURRENT_TIMESTAMP) AS Load_Timestamp
+FROM
+    STUDENT_PERFORMANCE;
+
+-- Create a Stored Procedure for Data Merge
+CREATE OR REPLACE PROCEDURE MERGE_ALL_DETAILS()
+    RETURNS STRING
+    LANGUAGE SQL
+    EXECUTE AS CALLER
+AS
+$$
+DECLARE
+    v_result STRING;
+BEGIN
+    -- Merge into DIM_STUDENT_SCHOOL_DETAILS
+    MERGE INTO DIM_STUDENT_SCHOOL_DETAILS AS d
+    USING STUDENT_DETAILS AS s
+    ON d.Student_ID = s.Student_ID
+    WHEN MATCHED THEN
+        UPDATE SET
+            d.Student_Name = s.Student_Name,
+            d.Date_Of_Birth = s.Date_Of_Birth,
+            d.Gender = s.Gender,
+            d.Grade_Level = s.Grade_Level,
+            d.Contact_Information = s.Contact_Information,
+            d.School_ID = s.School_ID,
+            d.School_Name = s.School_Name
+    WHEN NOT MATCHED THEN
+        INSERT (Student_ID, Student_Name, Date_Of_Birth, Gender, Grade_Level, Contact_Information, School_ID, School_Name)
+        VALUES (s.Student_ID, s.Student_Name, s.Date_Of_Birth, s.Gender, s.Grade_Level, s.Contact_Information, s.School_ID, s.School_Name);
+
+    -- Merge into FACT_STUDENT_PERFORMANCE
+    MERGE INTO FACT_STUDENT_PERFORMANCE AS f
+    USING STUDENT_PERFORMANCE AS p
+    ON f.Student_ID = p.Student_ID
+    WHEN MATCHED THEN
+        UPDATE SET
+            f.Formative_Assessment = p.Formative_Assessment,
+            f.Summative_Assessment = p.Summative_Assessment,
+            f.Assessment_Avg_Score = p.Assessment_Avg_Score,
+            f.Grade = p.Grade,
+            f.Attendance_Rate = p.Attendance_Rate,
+            f.Attendance_Report = p.Attendance_Report,
+            f.Load_Timestamp = CURRENT_TIMESTAMP
+    WHEN NOT MATCHED THEN
+        INSERT (Student_ID, Formative_Assessment, Summative_Assessment, Assessment_Avg_Score, Grade, Attendance_Rate, Attendance_Report, Load_Timestamp)
+        VALUES (p.Student_ID, p.Formative_Assessment, p.Summative_Assessment, p.Assessment_Avg_Score, p.Grade, p.Attendance_Rate, p.Attendance_Report, CURRENT_TIMESTAMP);
+
+    -- Set the result message
+    v_result := 'Procedure executed successfully.';
+
+    -- Return the result
+    RETURN v_result;
+END;
+$$;
+
+
+-- Create a Task to Execute the Procedure
+CREATE OR REPLACE TASK MERGE_ALL_DETAILS_TASK
+    WAREHOUSE = AMITWH
+    SCHEDULE = '1 MINUTE'
+    AS
+    CALL MERGE_ALL_DETAILS();
+
+-- Show Tasks
+SHOW TASKS;
+
+-- To execute the procedure manually
+CALL MERGE_ALL_DETAILS();
+
+-- To view data in the dimension and fact tables
+SELECT * FROM DIM_STUDENT_SCHOOL_DETAILS;
+SELECT * FROM FACT_STUDENT_PERFORMANCE;
+
+
+ALTER TASK MERGE_ALL_DETAILS_TASK RESUME;
+
+ALTER TASK MERGE_ALL_DETAILS_TASK SUSPEND;
